@@ -1,0 +1,157 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>Delhi Metro Route Finder</title>
+  <script crossorigin src="https://unpkg.com/react@18/umd/react.development.js"></script>
+  <script crossorigin src="https://unpkg.com/react-dom@18/umd/react-dom.development.js"></script>
+  <script src="https://unpkg.com/@babel/standalone/babel.min.js"></script>
+  <style>
+    body { font-family: Arial, sans-serif; margin: 0; background: #f3f6fb; }
+    .container { max-width: 900px; margin: 24px auto; padding: 24px; background: white; border-radius: 12px; box-shadow: 0 8px 20px rgba(0,0,0,0.08); }
+    h1 { margin-top: 0; }
+    .row { display: flex; gap: 16px; flex-wrap: wrap; }
+    .field { flex: 1; min-width: 220px; }
+    select, button { width: 100%; padding: 10px; margin-top: 8px; border: 1px solid #ddd; border-radius: 8px; }
+    button { background: #1e66f5; color: white; font-weight: bold; cursor: pointer; }
+    button:disabled { background: #9db8f8; }
+    .route-pill { display: inline-block; padding: 6px 10px; border-radius: 20px; margin: 4px 6px 4px 0; color: #fff; font-size: 12px; }
+    .card-grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(180px, 1fr)); gap: 12px; margin-top: 16px; }
+    .card { background: #f8fafc; border: 1px solid #e5e7eb; border-radius: 10px; padding: 12px; }
+    .error { color: #c00; margin-top: 12px; }
+  </style>
+</head>
+<body>
+  <div id="root"></div>
+
+  <script type="text/babel">
+    const API_BASE = "http://localhost:5000";
+
+    function App() {
+      const [stations, setStations] = React.useState([]);
+      const [sourceStationId, setSourceStationId] = React.useState("");
+      const [destinationStationId, setDestinationStationId] = React.useState("");
+      const [route, setRoute] = React.useState(null);
+      const [loading, setLoading] = React.useState(false);
+      const [error, setError] = React.useState("");
+
+      React.useEffect(() => {
+        fetch(`${API_BASE}/api/stations`)
+          .then((res) => res.json())
+          .then((data) => setStations(data))
+          .catch(() => setError("Unable to load stations. Start the API and verify CORS."));
+      }, []);
+
+      const findRoute = async () => {
+        setError("");
+        setRoute(null);
+        setLoading(true);
+
+        try {
+          const response = await fetch(`${API_BASE}/api/route`, {
+            method: "POST",
+            headers: { "Content-Type": "application/json" },
+            body: JSON.stringify({
+              sourceStationId: Number(sourceStationId),
+              destinationStationId: Number(destinationStationId)
+            })
+          });
+
+          if (!response.ok) {
+            const message = await response.text();
+            throw new Error(message || "Route fetch failed");
+          }
+
+          const data = await response.json();
+          setRoute(data);
+        } catch (e) {
+          setError(e.message);
+        } finally {
+          setLoading(false);
+        }
+      };
+
+      return (
+        <div className="container">
+          <h1>Delhi Metro Route Finder</h1>
+          <p>Select source and destination stations to view the best route, time, fare, and interchanges.</p>
+
+          <div className="row">
+            <div className="field">
+              <label>Source Station</label>
+              <select value={sourceStationId} onChange={(e) => setSourceStationId(e.target.value)}>
+                <option value="">Select source</option>
+                {stations.map((station) => (
+                  <option key={station.stationId} value={station.stationId}>
+                    {station.name} ({station.lineName})
+                  </option>
+                ))}
+              </select>
+            </div>
+
+            <div className="field">
+              <label>Destination Station</label>
+              <select value={destinationStationId} onChange={(e) => setDestinationStationId(e.target.value)}>
+                <option value="">Select destination</option>
+                {stations.map((station) => (
+                  <option key={station.stationId} value={station.stationId}>
+                    {station.name} ({station.lineName})
+                  </option>
+                ))}
+              </select>
+            </div>
+          </div>
+
+          <div style={{ marginTop: "16px" }}>
+            <button disabled={!sourceStationId || !destinationStationId || loading} onClick={findRoute}>
+              {loading ? "Finding route..." : "Find Best Route"}
+            </button>
+          </div>
+
+          {error && <p className="error">{error}</p>}
+
+          {route && (
+            <>
+              <h2>Route Overview</h2>
+              <div className="card-grid">
+                <div className="card"><strong>Total Stations:</strong><br />{route.totalStations}</div>
+                <div className="card"><strong>Estimated Time:</strong><br />{route.totalTimeMinutes} min</div>
+                <div className="card"><strong>Fare:</strong><br />₹{route.fare}</div>
+                <div className="card"><strong>Interchanges:</strong><br />{route.interchangeCount}</div>
+                <div className="card"><strong>Distance:</strong><br />{route.totalDistanceKm} km</div>
+                <div className="card"><strong>First/Last Metro:</strong><br />{route.firstMetroTime} - {route.lastMetroTime}</div>
+              </div>
+
+              <h3 style={{ marginTop: "20px" }}>Stations Path</h3>
+              <div>
+                {route.stations.map((station) => (
+                  <span
+                    key={station.stationId}
+                    className="route-pill"
+                    style={{ backgroundColor: station.color || "#444" }}
+                    title={station.lineName}
+                  >
+                    {station.name}
+                  </span>
+                ))}
+              </div>
+
+              <h3>Interchange Stations</h3>
+              {route.interchangeStations.length === 0 ? (
+                <p>No line changes required.</p>
+              ) : (
+                <ul>
+                  {route.interchangeStations.map((station) => <li key={station}>{station}</li>)}
+                </ul>
+              )}
+            </>
+          )}
+        </div>
+      );
+    }
+
+    ReactDOM.createRoot(document.getElementById("root")).render(<App />);
+  </script>
+</body>
+</html>
